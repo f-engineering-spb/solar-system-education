@@ -1,0 +1,33 @@
+{
+  "name": "solar-system-3d",
+  "version": "1.0.0",
+  "description": "Солнечная система: 3D-планетарий NASA",
+  "main": "index.html",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "cap:add": "npx.cmd cap add android",
+    "cap:sync": "npm.cmd run build && npx.cmd cap sync android",
+    "cap:open": "npx.cmd cap open android",
+    "cap:run": "npx.cmd cap run android",
+    "test:offline": "node scripts/verify_offline.js"
+  },
+  "keywords": [
+    "threejs",
+    "webgl",
+    "nasa",
+    "solar-system",
+    "planetarium",
+    "capacitor",
+    "android"
+  ],
+  "author": "FERO Bureau",
+  "license": "MIT",
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4"
+  }
+}

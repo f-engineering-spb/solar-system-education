@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Солнечная система 3D</string>
+    <string name="title_activity_main">Солнечная система 3D</string>
+    <string name="package_name">com.solarsystem.planetarium</string>
+    <string name="custom_url_scheme">com.solarsystem.planetarium</string>
+</resources>

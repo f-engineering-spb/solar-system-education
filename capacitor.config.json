@@ -1,0 +1,20 @@
+{
+  "appId": "com.solarsystem.education",
+  "appName": "Solar System Education",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "StatusBar": {
+      "overlaysWebView": true,
+      "style": "DARK"
+    }
+  },
+  "android": {
+    "backgroundColor": "#000004",
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  }
+}

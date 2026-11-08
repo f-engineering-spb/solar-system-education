@@ -1,0 +1,2250 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Солнечная система: 3D-планетарий NASA Standard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body, html {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #000004;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #fff;
+    }
+
+    /* Полноэкранный холст звездного неба */
+    #canvas-container {
+      position: fixed;
+      left: 0; top: 0;
+      width: 100vw; height: 100vh;
+      z-index: 1;
+      cursor: grab;
+    }
+    #canvas-container.panning {
+      cursor: grabbing !important;
+    }
+
+    /* HUD Слои */
+    .hud { position: absolute; z-index: 10; pointer-events: none; }
+    .interactive { pointer-events: auto; }
+
+    /* =========================================================================
+       МИНИМАЛИСТИЧНЫЙ ЛЕВЫЙ ДОК (WIDTH: 50PX)
+       ========================================================================= */
+    #sidebar-dock {
+      left: 14px; top: 14px; bottom: 14px;
+      width: 50px;
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 14px;
+      padding: 10px 6px;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      z-index: 20;
+    }
+
+    /* Разделитель */
+    .dock-divider {
+      width: 32px; height: 1px;
+      background: rgba(255, 255, 255, 0.12);
+      margin: 3px 0;
+      flex-shrink: 0;
+    }
+
+    /* Кнопки дока (36x36px) в стиле Apple (светло-серый монохром) */
+    .dock-btn {
+      position: relative;
+      width: 36px; height: 36px;
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: #e2e8f0;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      flex-shrink: 0;
+    }
+    .dock-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+      border-color: rgba(255, 255, 255, 0.32);
+      color: #ffffff;
+      transform: scale(1.06);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 10px rgba(255, 255, 255, 0.15);
+    }
+    .dock-btn.active {
+      background: #e2e8f0;
+      color: #0f172a;
+      border-color: #ffffff;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4), 0 0 12px rgba(255, 255, 255, 0.3);
+    }
+
+
+    /* Специальный стиль для кнопки переключения режима */
+    #btn-mode-toggle.real-mode {
+      background: linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%);
+      color: #0f172a;
+      border-color: #ffffff;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4), 0 0 14px rgba(255, 255, 255, 0.35);
+    }
+
+    /* Скроллируемый список планет */
+    .planets-scroll {
+      flex: 1;
+      width: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      display: flex; flex-direction: column; align-items: center; gap: 5px;
+      padding-top: 2px;
+    }
+    .planets-scroll::-webkit-scrollbar { width: 0; }
+
+    /* Кнопки планет с текстурным превью (в стиле Apple) */
+    .p-dot-btn {
+      position: relative;
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      flex-shrink: 0;
+    }
+    .p-dot-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.35);
+      transform: scale(1.08);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 10px rgba(255, 255, 255, 0.15);
+    }
+    .p-dot-btn.active {
+      background: rgba(255, 255, 255, 0.22);
+      border-color: #e2e8f0;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(255, 255, 255, 0.25);
+    }
+    /* Подсветка названия планеты в левом меню при наведении курсора в 3D */
+    .p-dot-btn.hovered-3d {
+      background: rgba(255, 255, 255, 0.25) !important;
+      border-color: #ffffff !important;
+      transform: scale(1.15) !important;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 16px rgba(255, 255, 255, 0.4) !important;
+      z-index: 120 !important;
+    }
+    .p-dot-btn.hovered-3d[data-tip]::after {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+      transform: translateY(-50%) translateX(6px) !important;
+      background: rgba(15, 23, 42, 0.98) !important;
+      border: 1px solid rgba(255, 255, 255, 0.25) !important;
+      box-shadow: 0 6px 26px rgba(0,0,0,0.95), 0 0 14px rgba(255, 255, 255, 0.15) !important;
+      color: #fff !important;
+      font-size: 12px !important;
+      font-weight: 600 !important;
+      padding: 6px 13px !important;
+      letter-spacing: 0.3px !important;
+    }
+    .planet-label.hovered-3d {
+      background: #e2e8f0 !important;
+      color: #0f172a !important;
+      border-color: #ffffff !important;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), 0 0 18px rgba(255, 255, 255, 0.5) !important;
+      transform: translate(-50%, -100%) scale(1.15) !important;
+      z-index: 60 !important;
+    }
+
+    /* Всплывающее меню / плашка при наведении курсора на планету (стиль Apple) */
+    .planet-hover-popup {
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 10px;
+      padding: 9px 15px;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85), 0 0 14px rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      color: #fff;
+      display: none;
+      transition: opacity 0.12s ease;
+      opacity: 0;
+      min-width: 170px;
+      max-width: 260px;
+    }
+    .planet-hover-popup.visible {
+      display: block;
+      opacity: 1;
+    }
+    .php-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 3px;
+    }
+    .php-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      box-shadow: 0 0 8px currentColor;
+    }
+    .php-name {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+    .php-info {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+      line-height: 1.3;
+    }
+    .php-hint {
+      font-size: 10px;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+    .p-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      box-shadow: 0 0 6px currentColor;
+    }
+
+    /* Глобальное всплывающее меню (Tooltip) для кнопок левого дока (стиль Apple) */
+    .dock-floating-tooltip {
+      position: fixed;
+      pointer-events: none;
+      z-index: 999999;
+      background: rgba(15, 23, 42, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 9px;
+      padding: 7px 14px;
+      font-size: 12.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      color: #ffffff;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.88), 0 0 14px rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      opacity: 0;
+      transform: translateY(-50%) translateX(-6px);
+      transition: opacity 0.14s ease, transform 0.14s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .dock-floating-tooltip.visible {
+      opacity: 1;
+      transform: translateY(-50%) translateX(0);
+    }
+    .dft-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      box-shadow: 0 0 8px currentColor;
+    }
+    .dft-text {
+      letter-spacing: 0.3px;
+    }
+
+    /* Toast Notification (стиль Apple) */
+    .toast {
+      position: absolute;
+      top: 24px; left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 9px;
+      padding: 10px 22px;
+      font-size: 12.5px;
+      color: #fff;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.8), 0 0 14px rgba(255, 255, 255, 0.08);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 100;
+      text-align: center;
+      max-width: 620px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Карточка планеты (Справа вверху, стиль Apple — компактный HUD) */
+    #info-card {
+      top: 14px; right: 14px; width: 245px;
+      background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 11px;
+      padding: 12px 14px; box-shadow: 0 12px 36px rgba(0,0,0,0.85);
+      display: none; transform: translateX(15px); transition: opacity 0.25s, transform 0.25s;
+    }
+    #info-card.visible { display: block; transform: translateX(0); }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .card-title { font-size: 15px; font-weight: 700; color: #fff; }
+    .card-type { font-size: 8.5px; color: #94a3b8; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+    .card-close { background: none; border: none; color: #8ba2c4; font-size: 15px; cursor: pointer; padding: 2px 4px; line-height: 1; }
+    .card-close:hover { color: #fff; }
+
+    /* Кнопка переключения вращения планеты вокруг своей оси (СПРАВА В КАРТОЧКЕ) */
+    .card-spin-bar { margin: 6px 0 5px 0; }
+    .btn-spin-toggle {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #fff;
+      font-size: 10.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      transition: all 0.25s;
+    }
+    .btn-spin-toggle:hover {
+      background: rgba(255, 255, 255, 0.18);
+      border-color: rgba(255, 255, 255, 0.35);
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.15);
+      transform: translateY(-1px);
+    }
+    .btn-spin-toggle.paused {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.3);
+      color: #e2e8f0;
+      box-shadow: 0 0 8px rgba(255, 255, 255, 0.15);
+    }
+
+    .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 6px 0; font-size: 9.5px; }
+    .data-item { background: rgba(255,255,255,0.04); padding: 4px 6px; border-radius: 5px; border-left: 2px solid #cbd5e1; }
+    .data-label { color: #8ba2c4; font-size: 8px; text-transform: uppercase; }
+    .data-val { font-size: 10.5px; font-weight: 600; margin-top: 1px; }
+    .card-desc { font-size: 9.5px; line-height: 1.4; color: #cbd5e1; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 6px; max-height: 85px; overflow-y: auto; }
+
+    /* Нижняя панель времени и скорости (стиль Apple) */
+    .time-bar {
+      bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(255,255,255,0.16); border-radius: 30px;
+      padding: 6px 20px; display: flex; align-items: center; gap: 14px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+    }
+    .btn-pill {
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18);
+      color: #f1f5f9; padding: 6px 12px; border-radius: 20px; font-size: 11.5px;
+      cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .btn-pill:hover { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.35); color: #fff; }
+    .speed-slider { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #94a3b8; }
+    input[type=range] { accent-color: #e2e8f0; cursor: pointer; }
+
+    /* Подсказка управления */
+    .pan-hint {
+      position: absolute; bottom: 20px; right: 20px;
+      font-size: 11px; color: #94a3b8; background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14);
+    }
+
+    /* Экранные плавающие метки планет (стиль Apple) */
+    .planet-label {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      background: rgba(15, 23, 42, 0.88);
+      padding: 3px 8px;
+      border-radius: 5px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      white-space: nowrap;
+      transition: opacity 0.2s;
+      z-index: 5;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    .planet-label:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+      border-color: #ffffff;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 12px rgba(255, 255, 255, 0.4);
+    }
+    .planet-label::after {
+      content: '';
+      position: absolute;
+      left: 50%; bottom: -4px;
+      transform: translateX(-50%);
+      border-width: 4px 4px 0 4px;
+      border-style: solid;
+      border-color: rgba(255, 255, 255, 0.25) transparent transparent transparent;
+    }
+    #labels-container {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; overflow: hidden; z-index: 5;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+  <!-- Полноэкранный холст WebGL -->
+  <div id="canvas-container"></div>
+  <div id="labels-container"></div>
+  <div id="toast" class="toast"></div>
+
+  <!-- Всплывающее меню с названием и параметрами планеты при наведении в 3D -->
+  <div id="planet-hover-popup" class="planet-hover-popup">
+    <div class="php-header">
+      <span class="php-dot" id="php-dot"></span>
+      <span class="php-name" id="php-name">Марс</span>
+    </div>
+    <div class="php-info" id="php-info">Каменистая планета • D: 6 779 км</div>
+    <div class="php-hint">👆 Кликните для перехода к объекту</div>
+  </div>
+
+  <!-- Всплывающее меню / плашка при наведении курсора на кнопки планет слева -->
+  <div id="dock-floating-tooltip" class="dock-floating-tooltip"></div>
+
+  <!-- МИНИМАЛЬНЫЙ ЛЕВЫЙ ДОК (ШИРИНА 50PX, СТИЛЬ APPLE) -->
+  <div class="hud interactive" id="sidebar-dock">
+    <button class="dock-btn" id="btn-mode-toggle" data-tip="🪐 Режим: Стандартный (Логар.)">🪐</button>
+    <button class="dock-btn active" id="btn-toggle-orbits" data-tip="⭕ Орбиты: Вкл">⭕</button>
+    <button class="dock-btn active" id="btn-toggle-asteroids" data-tip="☄️ Пояс астероидов: Вкл">☄️</button>
+    <button class="dock-btn" id="btn-toggle-habzone" data-tip="🌱 Зона жизни: Выкл">🌱</button>
+    <button class="dock-btn active" id="btn-labels" data-tip="🏷 Метки планет: Вкл">🏷</button>
+    <button class="dock-btn" id="btn-reset" data-tip="🎯 Центрировать Солнце (0,0,0)">🎯</button>
+
+    <div class="dock-divider"></div>
+
+    <!-- Список планет с цветными маркерами -->
+    <div class="planets-scroll" id="planets-dock">
+      <button class="p-dot-btn" data-target="Sun" data-tip="Солнце (NASA SDO 2K)"><span class="p-dot" style="background:#ffb703; color:#ffb703;"></span></button>
+      <button class="p-dot-btn" data-target="Mercury" data-tip="Меркурий (MESSENGER 2K)"><span class="p-dot" style="background:#a0aec0; color:#a0aec0;"></span></button>
+      <button class="p-dot-btn" data-target="Venus" data-tip="Венера (Magellan 2K)"><span class="p-dot" style="background:#e0a96d; color:#e0a96d;"></span></button>
+      <button class="p-dot-btn" data-target="Earth" data-tip="Земля (Blue Marble 2K + Облака)"><span class="p-dot" style="background:#4ea8de; color:#4ea8de;"></span></button>
+      <button class="p-dot-btn" data-target="Mars" data-tip="Марс (Viking/MRO 2K)"><span class="p-dot" style="background:#e63946; color:#e63946;"></span></button>
+      <button class="p-dot-btn" data-target="Vesta" data-tip="Веста (Астероид / NASA Dawn)"><span class="p-dot" style="background:#d7ccc8; color:#d7ccc8;"></span></button>
+      <button class="p-dot-btn" data-target="Ceres" data-tip="Церера (Карликовая планета / NASA Dawn)"><span class="p-dot" style="background:#b0bec5; color:#b0bec5;"></span></button>
+      <button class="p-dot-btn" data-target="Jupiter" data-tip="Юпитер (Cassini 2K)"><span class="p-dot" style="background:#d4a373; color:#d4a373;"></span></button>
+      <button class="p-dot-btn" data-target="Saturn" data-tip="Сатурн (Cassini + Кольца)"><span class="p-dot" style="background:#f4a261; color:#f4a261;"></span></button>
+      <button class="p-dot-btn" data-target="Uranus" data-tip="Уран (Voyager 2 + Кольца)"><span class="p-dot" style="background:#70e000; color:#70e000;"></span></button>
+      <button class="p-dot-btn" data-target="Neptune" data-tip="Нептун (Voyager 2 2K)"><span class="p-dot" style="background:#0077b6; color:#0077b6;"></span></button>
+      <button class="p-dot-btn" data-target="Pluto" data-tip="Плутон (New Horizons 2K)"><span class="p-dot" style="background:#9d4edd; color:#9d4edd;"></span></button>
+      <button class="p-dot-btn" data-target="Halley" data-tip="Комета Галлея (3D Ядро + Джеты)"><span class="p-dot" style="background:#00f5d4; color:#00f5d4;"></span></button>
+    </div>
+  </div>
+
+  <!-- Карточка планеты (СПРАВА) -->
+  <div class="hud interactive" id="info-card">
+    <div class="card-header">
+      <div>
+        <div class="card-title" id="card-name">Земля</div>
+        <div class="card-type" id="card-type">Планета земной группы</div>
+      </div>
+      <button class="card-close" id="card-close">✕</button>
+    </div>
+
+    <!-- КНОПКА УПРАВЛЕНИЯ ВРАЩЕНИЕМ ПЛАНЕТЫ (СПРАВА В КАРТОЧКЕ) -->
+    <div class="card-spin-bar">
+      <button id="btn-spin-toggle" class="btn-spin-toggle" title="Остановить или запустить осевое вращение планеты">
+        <span id="spin-status-icon">🔄</span>
+        <span id="spin-status-text">Вращение: Крутится</span>
+      </button>
+    </div>
+
+    <div class="data-grid">
+      <div class="data-item">
+        <div class="data-label">Диаметр</div>
+        <div class="data-val" id="card-diam">12 742 км</div>
+      </div>
+      <div class="data-item">
+        <div class="data-label">Пропорция к Земле</div>
+        <div class="data-val" id="card-ratio">1.00 × D⊕</div>
+      </div>
+      <div class="data-item">
+        <div class="data-label">Расстояние от Солнца</div>
+        <div class="data-val" id="card-dist">1.00 а.е. (150 млн км)</div>
+      </div>
+      <div class="data-item">
+        <div class="data-label">Орбитальный период</div>
+        <div class="data-val" id="card-period">365.25 дней</div>
+      </div>
+      <div class="data-item">
+        <div class="data-label">Период вращения</div>
+        <div class="data-val" id="card-rot">24 часа</div>
+      </div>
+      <div class="data-item">
+        <div class="data-label">Эксцентриситет (e)</div>
+        <div class="data-val" id="card-ecc">0.0167</div>
+      </div>
+    </div>
+    <div class="card-desc" id="card-desc">Описание объекта...</div>
+  </div>
+
+  <!-- Нижняя панель времени -->
+  <div class="time-bar hud interactive">
+    <button class="btn-pill" id="btn-play-pause">⏸ Пауза</button>
+    <button class="btn-pill" id="btn-reverse">⏪ Назад</button>
+    <div class="speed-slider">
+      <span>Скорость:</span>
+      <input type="range" id="time-speed" min="0" max="100" value="25">
+      <span id="speed-label">x25</span>
+    </div>
+    <button class="btn-pill" id="btn-photon">⚡ Фотон света</button>
+  </div>
+
+  <div class="hud pan-hint">
+    ✋ <b>ЛКМ:</b> лапа (сдвиг) | 🖱️ <b>ПКМ:</b> вращение ракурса | 🔍 <b>Колесико:</b> зум
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. АСТРОНОМИЧЕСКИЕ ДАННЫЕ NASA
+    // =========================================================================
+    const AU_SCALE = 85;
+    const EARTH_RADIUS = 1.1; // Базовый размер Земли в сцене
+
+    const CELESTIAL_DATA = {
+      Sun: {
+        name: "Солнце", type: "Жёлтый карлик (G2V)", diam: "1 392 700 км", ratio: "109.3 × D⊕",
+        dist: "0 а.е. (Центр)", period: "—", rot: "25–35 дней", ecc: "0.000", color: 0xffaa00,
+        size: 13.5, realSize: 15.5,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/sunmap.jpg',
+        desc: "Центральная звезда Солнечной системы. Текстура создана по данным космической обсерватории NASA SDO (Solar Dynamics Observatory)."
+      },
+      Mercury: {
+        name: "Меркурий", type: "Каменистая планета", diam: "4 879 км", ratio: "0.383 × D⊕",
+        dist: "0.387 а.е. (58 млн км)", period: "88 дней", rot: "58.6 дней", ecc: "0.2056", color: 0xa0aec0,
+        size: 0.383 * EARTH_RADIUS, // 0.42
+        stdOrbit:  { a: 22, e: 0.0,    i: 0.0,    w: 0.0 },
+        realOrbit: { a: 0.3871 * AU_SCALE, e: 0.2056, i: 0.1222, w: 1.3518 },
+        speedStd: 0.038, speedReal: 0.0415,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/mercurymap.jpg',
+        desc: "Карта поверхности составлена автоматической станцией NASA MESSENGER. Эксцентриситет e = 0.206 ускоряет планету в перигелии."
+      },
+      Venus: {
+        name: "Венера", type: "Каменистая планета", diam: "12 104 км", ratio: "0.949 × D⊕",
+        dist: "0.723 а.е. (108 млн км)", period: "225 дней", rot: "-243 дня (ретроградное)", ecc: "0.0068", color: 0xe0a96d,
+        size: 0.949 * EARTH_RADIUS, // 1.04
+        stdOrbit:  { a: 34, e: 0.0,    i: 0.0,    w: 0.0 },
+        realOrbit: { a: 0.7233 * AU_SCALE, e: 0.0068, i: 0.0592, w: 2.296 },
+        speedStd: 0.024, speedReal: 0.0163,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/venusmap.jpg',
+        desc: "Радарная карта рельефа составлена космическим аппаратом NASA Magellan сквозь сверхплотную углекислотную атмосферу."
+      },
+      Earth: {
+        name: "Земля", type: "Каменистая планета (Жизнь)", diam: "12 742 км", ratio: "1.000 × D⊕ (Эталон)",
+        dist: "1.000 а.е. (149.6 млн км)", period: "365.25 дней", rot: "23 ч 56 мин", ecc: "0.0167", color: 0x2b82c9,
+        size: 1.000 * EARTH_RADIUS, // 1.10
+        stdOrbit:  { a: 48, e: 0.0,    i: 0.0,    w: 0.0 },
+        realOrbit: { a: 1.0000 * AU_SCALE, e: 0.0167, i: 0.0000, w: 1.797 },
+        speedStd: 0.018, speedReal: 0.0100,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_atmos_2048.jpg',
+        cloudsUrl: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_clouds_1024.png',
+        desc: "Высокодетализированная 3D-модель с текстурой NASA Blue Marble и отдельным независимым слоем вращающихся облаков."
+      },
+      Mars: {
+        name: "Марс", type: "Каменистая планета", diam: "6 779 км", ratio: "0.532 × D⊕",
+        dist: "1.524 а.е. (228 млн км)", period: "687 дней", rot: "24 ч 37 мин", ecc: "0.0934", color: 0xc1440e,
+        size: 0.532 * EARTH_RADIUS, // 0.59
+        stdOrbit:  { a: 64, e: 0.0,    i: 0.0,    w: 0.0 },
+        realOrbit: { a: 1.5237 * AU_SCALE, e: 0.0934, i: 0.0323, w: 5.865 },
+        speedStd: 0.014, speedReal: 0.0053,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/marsmap1k.jpg',
+        desc: "Карта NASA Viking / Mars Reconnaissance Orbiter: отчетливо видны каньоны Долины Маринер, вулкан Олимп и полярные ледяные шапки."
+      },
+      Vesta: {
+        name: "Веста (4 Vesta)", type: "Протопланета / Астероид", diam: "525 км", ratio: "0.041 × D⊕",
+        dist: "2.36 а.е. (353 млн км)", period: "3.63 года", rot: "5.34 часов", ecc: "0.0887", color: 0xd7ccc8,
+        size: 0.46 * EARTH_RADIUS, realSize: 0.041,
+        stdOrbit:  { a: 76, e: 0.05, i: 0.06, w: 2.63 },
+        realOrbit: { a: 2.362 * AU_SCALE, e: 0.0887, i: 0.1246, w: 2.63 },
+        speedStd: 0.011, speedReal: 0.0028,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/moon_1024.jpg',
+        bumpUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/mercurybump.jpg',
+        desc: "Второй по массе астероид Главного пояса. Исследован зондом NASA Dawn в 2011 г. Обладает гигантским ударным кратером Реясильвия диаметром 500 км с центральным пиком высотой 22 км (один из высочайших пиков Солнечной системы)."
+      },
+      Ceres: {
+        name: "Церера (1 Ceres)", type: "Карликовая планета (Пояс астероидов)", diam: "940 км", ratio: "0.074 × D⊕",
+        dist: "2.77 а.е. (414 млн км)", period: "4.6 года", rot: "9.07 часов", ecc: "0.0758", color: 0xb0bec5,
+        size: 0.62 * EARTH_RADIUS, realSize: 0.074,
+        stdOrbit:  { a: 86, e: 0.04, i: 0.08, w: 1.28 },
+        realOrbit: { a: 2.767 * AU_SCALE, e: 0.0758, i: 0.1847, w: 1.28 },
+        speedStd: 0.0095, speedReal: 0.0022,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/moon_1024.jpg',
+        bumpUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/moonbump1k.jpg',
+        desc: "Крупнейшее тело и единственная карликовая планета пояса астероидов. Исследована зондом NASA Dawn в 2015 г. На поверхности выделяются знаменитые яркие пятна солей натрия в кратере Оккатор (Cerealia Facula) и криовулкан Ахуна Монс."
+      },
+      Jupiter: {
+        name: "Юпитер", type: "Газовый гигант", diam: "139 820 км", ratio: "10.97 × D⊕ (Царь планет)",
+        dist: "5.204 а.е. (778 млн км)", period: "11.86 лет", rot: "9 ч 55 мин", ecc: "0.0489", color: 0xd4a373,
+        size: 10.973 * EARTH_RADIUS, // 12.07
+        stdOrbit:  { a: 114, e: 0.0,   i: 0.0,    w: 0.0 },
+        realOrbit: { a: 5.2044 * AU_SCALE, e: 0.0489, i: 0.0227, w: 0.257 },
+        speedStd: 0.008, speedReal: 0.00084,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/jupitermap.jpg',
+        desc: "Фотокарта миссии NASA Cassini. Вихревые пояса водородно-гелиевой атмосферы и гигантский антициклон Большое Красное Пятно."
+      },
+      Saturn: {
+        name: "Сатурн", type: "Газовый гигант с кольцами", diam: "116 460 км", ratio: "9.14 × D⊕",
+        dist: "9.582 а.е. (1.43 млрд км)", period: "29.45 лет", rot: "10 ч 33 мин", ecc: "0.0565", color: 0xe2c48d,
+        size: 9.140 * EARTH_RADIUS, // 10.05
+        ring: true,
+        stdOrbit:  { a: 148, e: 0.0,   i: 0.0,    w: 0.0 },
+        realOrbit: { a: 9.5826 * AU_SCALE, e: 0.0565, i: 0.0435, w: 1.613 },
+        speedStd: 0.006, speedReal: 0.00034,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/saturnmap.jpg',
+        ringUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/saturnringcolor.jpg',
+        desc: "Модель NASA Cassini с полупрозрачными фотореалистичными кольцами, щелью Кассини и кольцом Энке."
+      },
+      Uranus: {
+        name: "Уран", type: "Ледяной гигант", diam: "50 724 км", ratio: "3.98 × D⊕",
+        dist: "19.22 а.е. (2.87 млрд км)", period: "84 года", rot: "-17 ч 14 мин (на боку)", ecc: "0.0463", color: 0x4cc9f0,
+        size: 3.981 * EARTH_RADIUS, // 4.38
+        ring: true,
+        stdOrbit:  { a: 182, e: 0.0,   i: 0.0,    w: 0.0 },
+        realOrbit: { a: 19.2184 * AU_SCALE, e: 0.0463, i: 0.0134, w: 2.984 },
+        speedStd: 0.004, speedReal: 0.00012,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/uranusmap.jpg',
+        ringUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/uranusringcolour.jpg',
+        desc: "Текстура аппарата NASA Voyager 2. Ледяной гигант с метановой лазурной атмосферой и собственной тонкой системой колец."
+      },
+      Neptune: {
+        name: "Нептун", type: "Ледяной гигант", diam: "49 244 км", ratio: "3.86 × D⊕",
+        dist: "30.05 а.е. (4.50 млрд км)", period: "164.8 года", rot: "16 ч 6 мин", ecc: "0.0095", color: 0x3a0ca3,
+        size: 3.865 * EARTH_RADIUS, // 4.25
+        stdOrbit:  { a: 216, e: 0.0,   i: 0.0,    w: 0.0 },
+        realOrbit: { a: 30.0700 * AU_SCALE, e: 0.0095, i: 0.0309, w: 0.785 },
+        speedStd: 0.003, speedReal: 0.00006,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/neptunemap.jpg',
+        desc: "Снимок NASA Voyager 2: темно-синий диск с Большим Темным Пятном и перистыми метановыми облаками."
+      },
+      Pluto: {
+        name: "Плутон", type: "Карликовая планета (Койпер)", diam: "2 376 км", ratio: "0.186 × D⊕",
+        dist: "39.48 а.е. (5.9 млрд км)", period: "248 лет", rot: "-6.4 дня", ecc: "0.2488", color: 0xa59489,
+        size: 0.186 * EARTH_RADIUS, // 0.20
+        stdOrbit:  { a: 248, e: 0.0,   i: 0.0,    w: 0.0 },
+        realOrbit: { a: 39.4820 * AU_SCALE, e: 0.2488, i: 0.2995, w: 3.911 },
+        speedStd: 0.002, speedReal: 0.00004,
+        textureUrl: 'https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/plutomap1k.jpg',
+        desc: "Карта миссии NASA New Horizons: четко видно светлое азотное сердце — Равнина Спутник."
+      },
+      Halley: {
+        name: "Комета Галлея (1P/Halley)", type: "Периодическая комета", diam: "15×8×8 км (ядро)", ratio: "~0.001 × D⊕",
+        dist: "0.59 – 35.1 а.е.", period: "75–76 лет", rot: "52 часа", ecc: "0.9671", color: 0x00f5d4,
+        size: 0.55, isComet: true,
+        stdOrbit:  { a: 110, e: 0.75,   i: 0.12,   w: 1.943 },
+        realOrbit: { a: 17.83 * AU_SCALE, e: 0.9671, i: 0.3107, w: 1.943 },
+        speedStd: 0.008, speedReal: 0.00018,
+        desc: "3D-модель Giotto/Vega: реалистичное гантелеобразное темное ядро (альбедо 0.04) с кратерами, активными сублимационными джетами, комой и динамическими ионным и пылевым хвостами."
+      }
+    };
+
+    // =========================================================================
+    // 2. ИНИЦИАЛИЗАЦИЯ THREE.JS И НАСТРОЙКА ЛАПЫ (ПЕРЕТАСКИВАНИЕ КАК ЧЕРТЕЖ)
+    // =========================================================================
+    const container = document.getElementById('canvas-container');
+    const labelsContainer = document.getElementById('labels-container');
+    const toastEl = document.getElementById('toast');
+    const scene = new THREE.Scene();
+
+    // near = 0.01 позволяет рассматривать текстуры планет вплотную
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 120000);
+    camera.position.set(0, 100, 220);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.25;
+    container.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.07;
+    controls.enableZoom = true;
+    controls.zoomSpeed = 1.25;
+
+    // ВАЖНО: Screen-space panning (чистый 2D сдвиг плоскости камеры без углового заваливания)
+    controls.enablePan = true;
+    controls.screenSpacePanning = true;
+    controls.panSpeed = 1.25;
+    controls.minDistance = 0.02;
+    controls.maxDistance = 85000;
+    controls.target.set(0, 0, 0);
+
+    // Освещение сцены
+    const ambientLight = new THREE.AmbientLight(0x363a4c, 0.95);
+    scene.add(ambientLight);
+
+    const sunLight = new THREE.PointLight(0xfff7e8, 3.4, 65000, 0.08);
+    scene.add(sunLight);
+
+    // Звездное небо (15 000 звезд)
+    const starCount = 15000;
+    const starsGeo = new THREE.BufferGeometry();
+    const starPos = new Float32Array(starCount * 3);
+    const starColors = new Float32Array(starCount * 3);
+
+    for(let i = 0; i < starCount * 3; i += 3) {
+      const r = 8000 + Math.random() * 6000;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      starPos[i] = r * Math.sin(phi) * Math.cos(theta);
+      starPos[i+1] = r * Math.sin(phi) * Math.sin(theta);
+      starPos[i+2] = r * Math.cos(phi);
+
+      const type = Math.random();
+      if (type > 0.88) {
+        starColors[i] = 0.75; starColors[i+1] = 0.88; starColors[i+2] = 1.0;
+      } else if (type > 0.75) {
+        starColors[i] = 1.0; starColors[i+1] = 0.92; starColors[i+2] = 0.7;
+      } else if (type > 0.68) {
+        starColors[i] = 1.0; starColors[i+1] = 0.65; starColors[i+2] = 0.55;
+      } else {
+        starColors[i] = 0.95; starColors[i+1] = 0.95; starColors[i+2] = 1.0;
+      }
+    }
+    starsGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    starsGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+    const starsMat = new THREE.PointsMaterial({ size: 2.2, vertexColors: true, transparent: true, opacity: 0.9 });
+    const starField = new THREE.Points(starsGeo, starsMat);
+    scene.add(starField);
+
+    // =========================================================================
+    // 3. ЗАГРУЗКА 2K ТЕКСТУР NASA (ВАРИАНТ В)
+    // =========================================================================
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.crossOrigin = 'anonymous';
+
+    function loadTexture(url) {
+      return textureLoader.load(
+        url,
+        (t) => {
+          t.generateMipmaps = true;
+          t.minFilter = THREE.LinearMipmapLinearFilter;
+          t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        },
+        undefined,
+        (err) => console.warn("Fallback texture:", url)
+      );
+    }
+
+    // --- СОЛНЦЕ (NASA SDO + МНОГОСЛОЙНАЯ КОРОНА) ---
+    const sunGroup = new THREE.Group();
+    scene.add(sunGroup);
+
+    const sunTexture = loadTexture(CELESTIAL_DATA.Sun.textureUrl);
+    const sunMat = new THREE.MeshBasicMaterial({ map: sunTexture, color: 0xfff0c2 });
+    const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 48), sunMat);
+    sunMesh.scale.setScalar(CELESTIAL_DATA.Sun.size);
+    sunMesh.userData = { key: 'Sun' };
+    sunGroup.add(sunMesh);
+
+    const coronaGeo = new THREE.SphereGeometry(1.35, 32, 32);
+    const coronaMat = new THREE.MeshBasicMaterial({ color: 0xff8811, transparent: true, opacity: 0.28, side: THREE.BackSide });
+    const coronaMesh = new THREE.Mesh(coronaGeo, coronaMat);
+    coronaMesh.scale.setScalar(CELESTIAL_DATA.Sun.size);
+    sunGroup.add(coronaMesh);
+
+    const outerHaloGeo = new THREE.SphereGeometry(1.6, 32, 32);
+    const outerHaloMat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.12, side: THREE.BackSide, blending: THREE.AdditiveBlending });
+    const outerHaloMesh = new THREE.Mesh(outerHaloGeo, outerHaloMat);
+    outerHaloMesh.scale.setScalar(CELESTIAL_DATA.Sun.size);
+    sunGroup.add(outerHaloMesh);
+
+    // =========================================================================
+    // 4. ОРБИТЫ, ПЛАНЕТЫ И ТЕКСТУРИРОВАННЫЕ КОЛЬЦА
+    // =========================================================================
+    function getKeplerOrbitPoint(a, e, iRad, wRad, E) {
+      const xp = a * (Math.cos(E) - e);
+      const zp = a * Math.sqrt(Math.max(0, 1 - e * e)) * Math.sin(E);
+      const cosW = Math.cos(wRad);
+      const sinW = Math.sin(wRad);
+      const xr = xp * cosW - zp * sinW;
+      const zr = xp * sinW + zp * cosW;
+      const x = xr;
+      const y = zr * Math.sin(iRad);
+      const z = zr * Math.cos(iRad);
+      return new THREE.Vector3(x, y, z);
+    }
+
+    function solveKepler(M, e) {
+      let E = M;
+      for (let i = 0; i < 5; i++) {
+        const f = E - e * Math.sin(E) - M;
+        const fPrime = 1 - e * Math.cos(E);
+        E -= f / fPrime;
+      }
+      return E;
+    }
+
+    function createTexturedRing(innerR, outerR, textureUrl) {
+      const ringGeo = new THREE.RingGeometry(innerR, outerR, 128, 1);
+      const pos = ringGeo.attributes.position;
+      const uvs = ringGeo.attributes.uv;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        const radius = Math.sqrt(x * x + y * y);
+        const u = (radius - innerR) / (outerR - innerR);
+        uvs.setXY(i, u, 0.5);
+      }
+      uvs.needsUpdate = true;
+
+      const ringTex = loadTexture(textureUrl);
+      const ringMat = new THREE.MeshStandardMaterial({
+        map: ringTex,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.95,
+        roughness: 0.5
+      });
+      const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+      ringMesh.rotation.x = Math.PI / 2.3;
+      return ringMesh;
+    }
+
+    const planetObjects = {};
+    const orbitLines = new THREE.Group();
+    scene.add(orbitLines);
+    const planetLabels = {};
+
+    const ORBIT_SEGMENTS = 256;
+
+    Object.keys(CELESTIAL_DATA).forEach(key => {
+      if (key === 'Sun' || key === 'Halley') return;
+      const p = CELESTIAL_DATA[key];
+
+      const orbitGeo = new THREE.BufferGeometry();
+      const posArray = new Float32Array((ORBIT_SEGMENTS + 1) * 3);
+      for(let s = 0; s <= ORBIT_SEGMENTS; s++) {
+        const E = (s / ORBIT_SEGMENTS) * Math.PI * 2;
+        const pt = getKeplerOrbitPoint(p.stdOrbit.a, p.stdOrbit.e, p.stdOrbit.i, p.stdOrbit.w, E);
+        posArray[s*3] = pt.x;
+        posArray[s*3 + 1] = pt.y;
+        posArray[s*3 + 2] = pt.z;
+      }
+      orbitGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+      const orbitMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22 });
+      const orbitLine = new THREE.Line(orbitGeo, orbitMat);
+      orbitLines.add(orbitLine);
+
+      const pGroup = new THREE.Group();
+
+      const tex = loadTexture(p.textureUrl);
+      const matProps = {
+        map: tex,
+        roughness: (key === 'Earth' || key === 'Jupiter') ? 0.55 : (key === 'Vesta' ? 0.88 : (key === 'Ceres' ? 0.90 : 0.8)),
+        metalness: key === 'Earth' ? 0.15 : 0.04
+      };
+      if (p.bumpUrl) {
+        matProps.bumpMap = loadTexture(p.bumpUrl);
+        matProps.bumpScale = key === 'Vesta' ? 0.22 : (key === 'Ceres' ? 0.14 : 0.10);
+      }
+      const pMat = new THREE.MeshStandardMaterial(matProps);
+
+      let pGeo;
+      if (key === 'Vesta') {
+        // Трехосный сплюснутый эллипсоид с гигантским кратером Реясильвия на южном полюсе
+        pGeo = new THREE.IcosahedronGeometry(1, 3);
+        const vPos = pGeo.attributes.position;
+        for (let i = 0; i < vPos.count; i++) {
+          let x = vPos.getX(i) * 1.14;
+          let y = vPos.getY(i) * 0.88;
+          let z = vPos.getZ(i) * 1.04;
+          // Южнополярный ударный кратер Реясильвия
+          if (y < -0.25) {
+            const dy = y + 0.25;
+            y -= 0.18 * Math.cos(dy * 2.5);
+          }
+          const bump = 1.0 + 0.07 * Math.sin(x * 6) * Math.cos(z * 6);
+          vPos.setXYZ(i, x * bump, y * bump, z * bump);
+        }
+        pGeo.computeVertexNormals();
+        addSphericalUVs(pGeo);
+      } else {
+        pGeo = new THREE.SphereGeometry(1, 48, 48);
+      }
+
+      const pMesh = new THREE.Mesh(pGeo, pMat);
+      pMesh.scale.setScalar(p.size);
+      pMesh.castShadow = true; pMesh.receiveShadow = true;
+      pMesh.userData = { key: key };
+      pGroup.add(pMesh);
+
+      // Знаменитое яркое пятно солей кратера Оккатор на Церере (Cerealia Facula, NASA Dawn)
+      if (key === 'Ceres') {
+        const faculaGeo = new THREE.CircleGeometry(0.09, 16);
+        const faculaMat = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.95
+        });
+        const faculaMesh = new THREE.Mesh(faculaGeo, faculaMat);
+        faculaMesh.position.set(0.68, 0.32, 0.65).normalize().multiplyScalar(1.003);
+        faculaMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), faculaMesh.position.clone().normalize());
+        pMesh.add(faculaMesh);
+      }
+
+      let ringMesh = null;
+      if (p.ring && p.ringUrl) {
+        if (key === 'Saturn') {
+          ringMesh = createTexturedRing(1.3 * p.size, 2.35 * p.size, p.ringUrl);
+          pGroup.add(ringMesh);
+        } else if (key === 'Uranus') {
+          ringMesh = createTexturedRing(1.4 * p.size, 1.85 * p.size, p.ringUrl);
+          pGroup.add(ringMesh);
+        }
+      }
+
+      let cloudsMesh = null;
+      if (key === 'Earth') {
+        const cloudsTex = loadTexture(p.cloudsUrl);
+        const cloudsMat = new THREE.MeshStandardMaterial({
+          map: cloudsTex,
+          transparent: true,
+          opacity: 0.65,
+          blending: THREE.NormalBlending,
+          depthWrite: false
+        });
+        cloudsMesh = new THREE.Mesh(new THREE.SphereGeometry(1.02, 48, 48), cloudsMat);
+        cloudsMesh.scale.setScalar(p.size);
+        pGroup.add(cloudsMesh);
+
+        const moonTex = loadTexture('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/moon_1024.jpg');
+        const moonMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.27 * EARTH_RADIUS, 24, 24),
+          new THREE.MeshStandardMaterial({ map: moonTex, roughness: 0.9 })
+        );
+        moonMesh.position.set(3.8, 0, 0);
+        pGroup.userData.moon = moonMesh;
+        pGroup.add(moonMesh);
+      }
+
+      scene.add(pGroup);
+
+      const label = document.createElement('div');
+      label.className = 'planet-label';
+      label.innerText = p.name;
+      label.onclick = (e) => {
+        e.stopPropagation();
+        focusOnObject(key);
+      };
+      labelsContainer.appendChild(label);
+      planetLabels[key] = label;
+
+      planetObjects[key] = {
+        group: pGroup,
+        mesh: pMesh,
+        clouds: cloudsMesh,
+        ring: ringMesh,
+        orbitLine: orbitLine,
+        data: p,
+        meanAnomaly: Math.random() * Math.PI * 2
+      };
+    });
+
+    // =========================================================================
+    // 5. 3D-МОДЕЛЬ КОМЕТЫ ГАЛЛЕЯ (РЕКОНСТРУКЦИЯ GIOTTO / VEGA: 15×8×8 КМ)
+    // =========================================================================
+    const cometGroup = new THREE.Group();
+
+    // Функция генерации сферических UV-координат
+    function addSphericalUVs(geo) {
+      const pos = geo.attributes.position;
+      const uvs = new Float32Array(pos.count * 2);
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        const len = Math.sqrt(x * x + y * y + z * z) || 1;
+        const u = 0.5 + Math.atan2(z, x) / (2 * Math.PI);
+        const v = 0.5 - Math.asin(Math.max(-1, Math.min(1, y / len))) / Math.PI;
+        uvs[i * 2] = u;
+        uvs[i * 2 + 1] = v;
+      }
+      geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    }
+
+    // Истинная 3D-морфология ядра кометы Галлея (миссия Giotto):
+    // Двудольное гантелеобразное тело (большая и малая доли, талия-седловина и ударные кратеры)
+    const cometGeo = new THREE.IcosahedronGeometry(0.55, 3);
+    const cPos = cometGeo.attributes.position;
+    const cometUvs = new Float32Array(cPos.count * 2);
+
+    for (let i = 0; i < cPos.count; i++) {
+      let x = cPos.getX(i);
+      let y = cPos.getY(i);
+      let z = cPos.getZ(i);
+
+      // Пропорции Giotto: вытягивание по X (15 км), талия-перетяжка на x ~ 0.05
+      const neck = 1.0 - 0.40 * Math.exp(-Math.pow(x - 0.05, 2) / 0.065);
+      const lobe = (x < 0) ? (1.06 + 0.15 * (1 - x * x)) : (0.80 + 0.10 * (1 - x * x));
+      let px = x * 1.95;
+      let py = y * 0.95 * neck * lobe;
+      let pz = z * 0.88 * neck * lobe;
+
+      // Глубокие ударно-сублимационные кратеры (Giotto flyby calderas)
+      const craters = [
+        { cx: -0.45, cy: 0.35, cz: 0.25, r: 0.40, depth: 0.14 },
+        { cx: 0.35, cy: -0.22, cz: 0.30, r: 0.32, depth: 0.12 },
+        { cx: 0.05, cy: 0.45, cz: -0.20, r: 0.28, depth: 0.10 },
+        { cx: -0.65, cy: -0.15, cz: -0.25, r: 0.35, depth: 0.12 }
+      ];
+      for (let k = 0; k < craters.length; k++) {
+        const c = craters[k];
+        const dx = x - c.cx, dy = y - c.cy, dz = z - c.cz;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d < c.r) {
+          const factor = Math.cos((Math.PI * d) / (2 * c.r));
+          const dip = c.depth * factor * factor;
+          px -= (px / 1.5) * dip;
+          py -= (py / 1.0) * dip;
+          pz -= (pz / 1.0) * dip;
+        }
+      }
+
+      // Скальные гряды и фрактальный микрорельеф
+      const crags = 0.055 * Math.sin(px * 8) * Math.cos(py * 7) + 0.035 * Math.sin(pz * 11) + 0.02 * Math.cos(px * 16 + pz * 16);
+      px *= (1 + crags);
+      py *= (1 + crags);
+      pz *= (1 + crags);
+
+      cPos.setXYZ(i, px, py, pz);
+
+      // Сферическая развертка UV
+      const len = Math.sqrt(px * px + py * py + pz * pz) || 1;
+      const u = 0.5 + Math.atan2(pz, px) / (2 * Math.PI);
+      const v = 0.5 - Math.asin(Math.max(-1, Math.min(1, py / len))) / Math.PI;
+      cometUvs[i * 2] = u;
+      cometUvs[i * 2 + 1] = v;
+    }
+    cometGeo.setAttribute('uv', new THREE.BufferAttribute(cometUvs, 2));
+    cometGeo.computeVertexNormals();
+
+    const halleyTex = loadTexture('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/moon_1024.jpg');
+    const halleyBump = loadTexture('https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/moonbump1k.jpg');
+    const halleyRoughness = loadTexture('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/roughness_map.jpg');
+
+    const cometMat = new THREE.MeshStandardMaterial({
+      map: halleyTex,
+      bumpMap: halleyBump,
+      bumpScale: 0.18,
+      roughnessMap: halleyRoughness,
+      color: 0x383a40, // Сверхтемное углеродистое альбедо ~0.04 (чернее угля)
+      roughness: 0.95,
+      metalness: 0.04
+    });
+    const cometNucleus = new THREE.Mesh(cometGeo, cometMat);
+    cometNucleus.userData = { key: 'Halley' };
+    cometGroup.add(cometNucleus);
+
+    // Функция создания сублимационного джета Giotto (светящееся сопло + газовый конус)
+    function createCometJet(origin, direction, scale = 1.0) {
+      const jetGroup = new THREE.Group();
+      jetGroup.position.copy(origin);
+      jetGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
+
+      // Светящийся конус сублимирующего газа
+      const coneGeo = new THREE.ConeGeometry(0.32 * scale, 3.2 * scale, 16, 1, true);
+      coneGeo.translate(0, 1.6 * scale, 0);
+      const coneMat = new THREE.MeshBasicMaterial({
+        color: 0x64dfdf,
+        transparent: true,
+        opacity: 0.50,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const coneMesh = new THREE.Mesh(coneGeo, coneMat);
+      jetGroup.add(coneMesh);
+
+      // Яркий центральный стержень выброса (сопло)
+      const coreGeo = new THREE.CylinderGeometry(0.04 * scale, 0.12 * scale, 2.0 * scale, 8, 1, true);
+      coreGeo.translate(0, 1.0 * scale, 0);
+      const coreMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+      jetGroup.add(coreMesh);
+
+      return jetGroup;
+    }
+
+    // 3 направленных сублимационных джета из освещенных Солнцем кратеров
+    const jet1 = createCometJet(new THREE.Vector3(0.50, 0.28, 0.36), new THREE.Vector3(0.6, 0.4, 0.5), 1.1);
+    const jet2 = createCometJet(new THREE.Vector3(-0.38, 0.45, 0.26), new THREE.Vector3(-0.3, 0.7, 0.4), 0.9);
+    const jet3 = createCometJet(new THREE.Vector3(0.06, -0.38, 0.46), new THREE.Vector3(0.1, -0.6, 0.7), 0.8);
+    cometNucleus.add(jet1);
+    cometNucleus.add(jet2);
+    cometNucleus.add(jet3);
+
+    // =========================================================================
+    // ВАРИАНТ 3: ГИБРИДНЫЙ АСТРОНОМИЧЕСКИЙ ЭТАЛОН NASA (ШЕЙДЕРНЫЙ ХВОСТ + КОМА)
+    // =========================================================================
+
+    // 1. МНОГОСЛОЙНАЯ ОБЪЕМНАЯ КОМА (БИЛЛБОРД С ЭКСПОНЕНЦИАЛЬНЫМ РАДИАЛЬНЫМ ГРАДИЕНТОМ)
+    // Создаем процедурную текстуру радиального свечения высокой оптической плавности
+    function createRadialGlowTexture(innerColor, outerColor) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+      const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      grad.addColorStop(0.0, innerColor);
+      grad.addColorStop(0.25, outerColor);
+      grad.addColorStop(0.60, 'rgba(0, 180, 216, 0.15)');
+      grad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 128);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    const innerComaTex = createRadialGlowTexture('rgba(255, 255, 255, 0.95)', 'rgba(100, 223, 223, 0.65)');
+    const outerComaTex = createRadialGlowTexture('rgba(100, 223, 223, 0.50)', 'rgba(0, 119, 182, 0.25)');
+
+    // Внутреннее яркое ядро комы (плотная сублимация около джетов)
+    const innerComaMat = new THREE.SpriteMaterial({
+      map: innerComaTex,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const innerComa = new THREE.Sprite(innerComaMat);
+    innerComa.scale.set(3.4, 3.4, 1.0);
+    cometNucleus.add(innerComa);
+
+    // Внешнее рассеянное диффузное гало комы
+    const outerComaMat = new THREE.SpriteMaterial({
+      map: outerComaTex,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const outerComa = new THREE.Sprite(outerComaMat);
+    outerComa.scale.set(7.5, 7.5, 1.0);
+    cometNucleus.add(outerComa);
+
+    // 2. ИОННЫЙ ГАЗОВЫЙ ХВОСТ (ТИП I): ФИЗИЧЕСКИЙ ШЕЙДЕР С ПЛАЗМЕННЫМИ ВОЛОКНАМИ
+    // Прямой, узкий, лазурно-электрический луч, направлен строго против Солнца (+Z)
+    const ionTailGeo = new THREE.CylinderGeometry(0.12, 2.6, 52, 32, 64, true);
+    ionTailGeo.translate(0, 26, 0); // Начало у ядра, вершина на 52 ед.
+    ionTailGeo.rotateX(Math.PI / 2); // Направляем вдоль оси +Z (антисолнечный вектор)
+
+    const ionTailMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0.0 }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vViewPosition;
+        void main() {
+          vUv = uv;
+          vNormal = normalize(normalMatrix * normal);
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          vViewPosition = -mvPosition.xyz;
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vViewPosition;
+        void main() {
+          // vUv.y идет от 0.0 (у ядра) до 1.0 (на конце хвоста)
+          // 1. Экспоненциальное угасание в вакуум космоса (кончик плавно тает)
+          float axialFade = exp(-2.3 * vUv.y) * (1.0 - smoothstep(0.70, 1.0, vUv.y));
+
+          // 2. Мягкие объемные кромки (вид под углом к нормали, нулевые жесткие границы)
+          vec3 viewDir = normalize(vViewPosition);
+          float edgeFade = pow(max(0.0, abs(dot(vNormal, viewDir))), 1.25);
+
+          // 3. Динамические плазменные волокна (стримеры) под действием солнечного ветра
+          float s1 = sin(vUv.x * 26.0 + uTime * 2.5 + vUv.y * 8.0) * 0.18;
+          float s2 = sin(vUv.x * 52.0 - uTime * 3.8 + vUv.y * 16.0) * 0.12;
+          float s3 = sin(vUv.x * 14.0 + uTime * 1.2) * 0.14;
+          float streamers = 0.72 + s1 + s2 + s3;
+
+          float alpha = clamp(axialFade * edgeFade * streamers * 1.7, 0.0, 1.0);
+          if (alpha < 0.002) discard;
+
+          // Цветовой градиент: от светящегося циана у ядра к глубокому лазурно-плазменному синему
+          vec3 coreCol = vec3(0.55, 0.96, 1.0);
+          vec3 tailCol = vec3(0.03, 0.42, 0.95);
+          vec3 col = mix(coreCol, tailCol, smoothstep(0.02, 0.65, vUv.y));
+
+          gl_FragColor = vec4(col * 1.35, alpha * 0.90);
+        }
+      `,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    const ionTail = new THREE.Mesh(ionTailGeo, ionTailMat);
+    cometGroup.add(ionTail);
+
+    // 3. ПЫЛЕВОЙ ВЕЕР (ТИП II): ИЗОГНУТЫЙ ДИФФУЗНЫЙ ШЕЙДЕРНЫЙ ШЛЕЙФ
+    // Теплый золотисто-белый шлейф, отстающий по траектории орбиты кометы
+    function createDustFanGeometry() {
+      const segT = 48; // Вдоль хвоста
+      const segS = 16; // Поперек веера
+      const pos = [];
+      const uvs = [];
+      const indices = [];
+
+      for (let i = 0; i <= segT; i++) {
+        const t = i / segT; // [0, 1]
+        const z = t * 46.0; // Антисолнечное направление
+        const x = Math.pow(t, 1.68) * 9.2; // Орбитальное искривление назад
+        const width = 0.40 + Math.pow(t, 1.25) * 9.8;
+
+        for (let j = 0; j <= segS; j++) {
+          const s = (j / segS) * 2.0 - 1.0; // [-1.0, 1.0]
+          const vx = x + s * (width * 0.5);
+          const vy = (s * s - 0.5) * (width * 0.16); // Легкая объемная вогнутость веера
+          const vz = z;
+
+          pos.push(vx, vy, vz);
+          uvs.push((s + 1.0) * 0.5, t);
+        }
+      }
+
+      for (let i = 0; i < segT; i++) {
+        for (let j = 0; j < segS; j++) {
+          const a = i * (segS + 1) + j;
+          const b = (i + 1) * (segS + 1) + j;
+          const c = (i + 1) * (segS + 1) + (j + 1);
+          const d = i * (segS + 1) + (j + 1);
+          indices.push(a, b, d);
+          indices.push(b, c, d);
+        }
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      return geo;
+    }
+
+    const dustFanGeo = createDustFanGeometry();
+    const dustTailMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0.0 }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+          // vUv.x идет поперек веера [0, 1] (центр 0.5)
+          // vUv.y идет вдоль хвоста [0, 1]
+          float s = (vUv.x - 0.5) * 2.0; // [-1, 1]
+
+          // 1. Плавный профиль плотности Гаусса по ширине веера (края мягко тают)
+          float crossEnvelope = exp(-3.2 * s * s);
+          crossEnvelope *= (1.0 - smoothstep(0.72, 1.0, abs(s)));
+
+          // 2. Экспоненциальное угасание плотности пыли по длине
+          float axialFade = exp(-1.75 * vUv.y) * (1.0 - smoothstep(0.68, 1.0, vUv.y));
+
+          // 3. Тонкие клубящиеся неоднородности пылевого облака
+          float dustTurbulence = 0.86 + 0.14 * sin(s * 8.0 + vUv.y * 14.0 - uTime * 0.4) 
+                                           * cos(s * 6.0 - vUv.y * 8.0);
+
+          float alpha = clamp(crossEnvelope * axialFade * dustTurbulence * 0.72, 0.0, 1.0);
+          if (alpha < 0.002) discard;
+
+          // Теплый спектр рассеивания солнечного света пылью (кремово-белый у ядра -> янтарный на краях)
+          vec3 innerDust = vec3(1.0, 0.95, 0.86);
+          vec3 outerDust = vec3(0.92, 0.72, 0.44);
+          vec3 col = mix(innerDust, outerDust, smoothstep(0.04, 0.80, vUv.y + abs(s) * 0.28));
+
+          gl_FragColor = vec4(col * 1.15, alpha * 0.75);
+        }
+      `,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    const dustTail = new THREE.Mesh(dustFanGeo, dustTailMat);
+    cometGroup.add(dustTail);
+
+    // 4. ОБЪЕМНЫЙ ШЛЕЙФ МИКРОЧАСТИЦ ПЫЛИ (GPU STARDUST PARTICLES)
+    // 1 200 полупрозрачных микрочастиц, непрерывно вылетающих из джетов ядра вдоль веера
+    const dustMotesCount = 1200;
+    const dustMotesGeo = new THREE.BufferGeometry();
+    const motesPos = new Float32Array(dustMotesCount * 3);
+    const motesData = [];
+
+    for (let i = 0; i < dustMotesCount; i++) {
+      const t = Math.random(); // Положение вдоль хвоста
+      const offsetS = (Math.random() - 0.5) * 1.6;
+      const offsetY = (Math.random() - 0.5) * 1.2;
+      const speed = 0.004 + Math.random() * 0.008;
+      const size = 0.4 + Math.random() * 0.9;
+      motesData.push({ t, offsetS, offsetY, speed, size });
+
+      const z = t * 46.0;
+      const x = Math.pow(t, 1.68) * 9.2 + offsetS * (0.35 + Math.pow(t, 1.25) * 4.6);
+      const y = offsetY * (0.3 + t * 1.8);
+      motesPos[i * 3] = x;
+      motesPos[i * 3 + 1] = y;
+      motesPos[i * 3 + 2] = z;
+    }
+    dustMotesGeo.setAttribute('position', new THREE.BufferAttribute(motesPos, 3));
+
+    const moteTexture = createRadialGlowTexture('rgba(255, 248, 220, 0.95)', 'rgba(230, 180, 100, 0.35)');
+    const dustMotesMat = new THREE.PointsMaterial({
+      map: moteTexture,
+      size: 1.1,
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const dustMotesMesh = new THREE.Points(dustMotesGeo, dustMotesMat);
+    cometGroup.add(dustMotesMesh);
+
+    scene.add(cometGroup);
+
+    const cometOrbitGeo = new THREE.BufferGeometry();
+    const cometPosArray = new Float32Array((ORBIT_SEGMENTS + 1) * 3);
+    for(let s = 0; s <= ORBIT_SEGMENTS; s++) {
+      const E = (s / ORBIT_SEGMENTS) * Math.PI * 2;
+      const pt = getKeplerOrbitPoint(CELESTIAL_DATA.Halley.stdOrbit.a, CELESTIAL_DATA.Halley.stdOrbit.e, CELESTIAL_DATA.Halley.stdOrbit.i, CELESTIAL_DATA.Halley.stdOrbit.w, E);
+      cometPosArray[s*3] = pt.x;
+      cometPosArray[s*3 + 1] = pt.y;
+      cometPosArray[s*3 + 2] = pt.z;
+    }
+    cometOrbitGeo.setAttribute('position', new THREE.BufferAttribute(cometPosArray, 3));
+    const cometOrbitLine = new THREE.Line(cometOrbitGeo, new THREE.LineBasicMaterial({ color: 0x00f5d4, transparent: true, opacity: 0.3 }));
+    orbitLines.add(cometOrbitLine);
+
+    let cometMeanAnomaly = 0;
+
+    const cometLabel = document.createElement('div');
+    cometLabel.className = 'planet-label';
+    cometLabel.innerText = "Комета Галлея";
+    cometLabel.onclick = (e) => {
+      e.stopPropagation();
+      focusOnObject('Halley');
+    };
+    labelsContainer.appendChild(cometLabel);
+    planetLabels['Halley'] = cometLabel;
+
+    // =========================================================================
+    // 6. ПОЯС ИЗ 2 800 ТЕКСТУРИРОВАННЫХ 3D-АСТЕРОИДОВ (3 КЛАССА C / S / M)
+    // =========================================================================
+    const asteroidBeltGroup = new THREE.Group();
+    scene.add(asteroidBeltGroup);
+
+    // Текстуры высокого разрешения NASA (кратеры Луны и Меркурия)
+    const asteroidRockTex = loadTexture('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/moon_1024.jpg');
+    const asteroidBumpTex = loadTexture('https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/moonbump1k.jpg');
+    const asteroidMercuryBump = loadTexture('https://cdn.jsdelivr.net/gh/jeromeetienne/threex.planets@master/images/mercurybump.jpg');
+
+    // КЛАСС 1: Углеродистые хондриты (C-тип, 65% ~ 1800 шт.) - темная кратерированная скала
+    const geoC = new THREE.IcosahedronGeometry(0.38, 2);
+    const pC = geoC.attributes.position;
+    for (let i = 0; i < pC.count; i++) {
+      let x = pC.getX(i) * 1.45, y = pC.getY(i) * 0.95, z = pC.getZ(i) * 0.85;
+      const r = 1.0 + 0.18 * Math.sin(x * 9) * Math.cos(y * 8) + 0.12 * Math.sin(z * 11);
+      pC.setXYZ(i, x * r, y * r, z * r);
+    }
+    geoC.computeVertexNormals();
+    addSphericalUVs(geoC);
+
+    const matC = new THREE.MeshStandardMaterial({
+      map: asteroidRockTex,
+      bumpMap: asteroidBumpTex,
+      bumpScale: 0.18,
+      color: 0x6e7178,
+      roughness: 0.95,
+      metalness: 0.05
+    });
+
+    // КЛАСС 2: Каменистые силикаты (S-тип, 25% ~ 700 шт.) - рыжевато-охристые граненые глыбы
+    const geoS = new THREE.DodecahedronGeometry(0.34, 1);
+    const pS = geoS.attributes.position;
+    for (let i = 0; i < pS.count; i++) {
+      let x = pS.getX(i) * 1.25, y = pS.getY(i) * 1.10, z = pS.getZ(i) * 0.90;
+      const r = 1.0 + 0.15 * Math.sin(x * 12) + 0.10 * Math.cos(z * 10);
+      pS.setXYZ(i, x * r, y * r, z * r);
+    }
+    geoS.computeVertexNormals();
+    addSphericalUVs(geoS);
+
+    const matS = new THREE.MeshStandardMaterial({
+      map: asteroidRockTex,
+      bumpMap: asteroidMercuryBump,
+      bumpScale: 0.22,
+      color: 0xaa957c, // Теплый каменистый силикатный оттенок
+      roughness: 0.88,
+      metalness: 0.08
+    });
+
+    // КЛАСС 3: Металлические (M-тип, 10% ~ 300 шт.) - никель-железо с отражающими гранями
+    const geoM = new THREE.OctahedronGeometry(0.32, 2);
+    const pM = geoM.attributes.position;
+    for (let i = 0; i < pM.count; i++) {
+      let x = pM.getX(i) * 1.15, y = pM.getY(i) * 0.90, z = pM.getZ(i) * 1.20;
+      const r = 1.0 + 0.14 * Math.sin(x * 7) * Math.sin(y * 7);
+      pM.setXYZ(i, x * r, y * r, z * r);
+    }
+    geoM.computeVertexNormals();
+    addSphericalUVs(geoM);
+
+    const matM = new THREE.MeshStandardMaterial({
+      map: asteroidRockTex,
+      bumpMap: asteroidBumpTex,
+      bumpScale: 0.14,
+      color: 0x8e98a5, // Металлический отблеск
+      roughness: 0.48,
+      metalness: 0.45
+    });
+
+    const countC = 1800, countS = 700, countM = 300;
+    const meshC = new THREE.InstancedMesh(geoC, matC, countC);
+    const meshS = new THREE.InstancedMesh(geoS, matS, countS);
+    const meshM = new THREE.InstancedMesh(geoM, matM, countM);
+
+    asteroidBeltGroup.add(meshC);
+    asteroidBeltGroup.add(meshS);
+    asteroidBeltGroup.add(meshM);
+
+    const dummy = new THREE.Object3D();
+    const asteroidData = [];
+
+    function populateAsteroidClass(mesh, count, type) {
+      for (let i = 0; i < count; i++) {
+        const stdR = 74 + Math.random() * 22; // Между орбитой Марса (64) и Юпитера (114)
+        const realR = (2.10 + Math.random() * 1.25) * AU_SCALE;
+        const angle = Math.random() * Math.PI * 2;
+        const yStd = (Math.random() - 0.5) * 5.0;
+        const yReal = (Math.random() - 0.5) * 18.0;
+        const speed = (0.005 + Math.random() * 0.004);
+
+        // Индивидуальные угловые скорости кувыркания в 3D
+        const rotSpeedX = (Math.random() - 0.5) * 0.025;
+        const rotSpeedY = (Math.random() - 0.5) * 0.035;
+        const rotSpeedZ = (Math.random() - 0.5) * 0.020;
+        let rotX = Math.random() * Math.PI * 2;
+        let rotY = Math.random() * Math.PI * 2;
+        let rotZ = Math.random() * Math.PI * 2;
+
+        // Разнообразие размеров: от мелких осколков до гигантских километровых астероидов
+        const rRand = Math.random();
+        let scale;
+        if (rRand < 0.65) {
+          scale = 0.35 + Math.random() * 0.45; // Мелкие осколки
+        } else if (rRand < 0.90) {
+          scale = 0.85 + Math.random() * 0.65; // Средние астероиды
+        } else {
+          scale = 1.60 + Math.random() * 1.10; // Крупные глыбы с четким рельефом!
+        }
+
+        asteroidData.push({
+          mesh, index: i, stdR, realR, angle, yStd, yReal, speed,
+          rotSpeedX, rotSpeedY, rotSpeedZ, rotX, rotY, rotZ, scale
+        });
+
+        dummy.position.set(Math.cos(angle) * stdR, yStd, Math.sin(angle) * stdR);
+        dummy.scale.setScalar(scale);
+        dummy.rotation.set(rotX, rotY, rotZ);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+
+    populateAsteroidClass(meshC, countC, 'C');
+    populateAsteroidClass(meshS, countS, 'S');
+    populateAsteroidClass(meshM, countM, 'M');
+
+    // =========================================================================
+    // 7. ЗОНА ЖИЗНИ И ФОТОН СВЕТА
+    // =========================================================================
+    const habZoneMat = new THREE.MeshBasicMaterial({ color: 0x2ec4b6, side: THREE.DoubleSide, transparent: true, opacity: 0.16 });
+    let habZone = new THREE.Mesh(new THREE.RingGeometry(42, 58, 64), habZoneMat);
+    habZone.rotation.x = Math.PI / 2;
+    habZone.visible = false;
+    scene.add(habZone);
+
+    function updateHabZoneGeometry(modeT) {
+      habZone.geometry.dispose();
+      const rInner = (1 - modeT) * 42 + modeT * (0.95 * AU_SCALE);
+      const rOuter = (1 - modeT) * 58 + modeT * (1.45 * AU_SCALE);
+      habZone.geometry = new THREE.RingGeometry(rInner, rOuter, 64);
+    }
+
+    const photonMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.8, 16, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    photonMesh.visible = false;
+    scene.add(photonMesh);
+    let photonActive = false;
+    let photonDist = 0;
+
+    // =========================================================================
+    // 8. РЕЖИМ ЛАПЫ (ЧИСТЫЙ ЧЕРТЕЖНЫЙ ПАН БЕЗ ВРАЩЕНИЯ) И СИСТЕМА УПРАВЛЕНИЯ
+    // =========================================================================
+    let isRealMode = false;
+    let modeTransition = 0.0;
+    let targetModeTransition = 0.0;
+    let showLabels = true;
+    let isPlaying = true;
+    let timeScale = 1.0;
+    let timeDirection = 1;
+
+    // Управление вращением планеты вокруг своей оси (СПРАВА В КАРТОЧКЕ)
+    let isPlanetSpinning = true;
+    const btnSpinToggle = document.getElementById('btn-spin-toggle');
+    const spinIcon = document.getElementById('spin-status-icon');
+    const spinText = document.getElementById('spin-status-text');
+
+    btnSpinToggle.onclick = () => {
+      isPlanetSpinning = !isPlanetSpinning;
+      btnSpinToggle.classList.toggle('paused', !isPlanetSpinning);
+      if (isPlanetSpinning) {
+        spinIcon.innerText = "🔄";
+        spinText.innerText = "Вращение: Крутится";
+        showToast("🔄 Осевое вращение планеты возобновлено.");
+      } else {
+        spinIcon.innerText = "⏸";
+        spinText.innerText = "Вращение: Зафиксировано (Стоит)";
+        showToast("⏸ Осевое вращение остановлено: планета зафиксирована для детального осмотра.");
+      }
+    };
+
+    // РЕЖИМ УПРАВЛЕНИЯ КАМЕРОЙ:
+    // 1. ЛКМ = режим «лапа» (Screen-space Pan)
+    // 2. Колесико = приблизить / отдалить (Zoom / Dolly)
+    // 3. ПКМ = изменение плоскости просмотра (3D Orbit Rotate)
+    const canvasContainer = document.getElementById('canvas-container');
+
+    controls.enableRotate = true;
+    controls.enablePan = true;
+    controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+    controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
+    controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+
+    // Запрет контекстного меню браузера при вращении правой кнопкой мыши
+    window.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
+
+    // При начале взаимодействия прерываем автоперелет (transition), но НЕ сбрасываем трекинг при вращении и зуме
+    controls.addEventListener('start', () => {
+      isTransitioning = false;
+    });
+
+    // Отслеживание перемещения мыши для отделения клика от перетаскивания (Drag)
+    const mouseDownPos = { x: 0, y: 0 };
+    let wasMouseDragged = false;
+
+    // Курсор 'grabbing' во время перетаскивания лапой (ЛКМ)
+    window.addEventListener('mousedown', (e) => {
+      mouseDownPos.x = e.clientX;
+      mouseDownPos.y = e.clientY;
+      wasMouseDragged = false;
+
+      if (e.button === 0 && !e.target.closest('.interactive')) {
+        canvasContainer.classList.add('panning');
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      canvasContainer.classList.remove('panning');
+    });
+
+    // Дельта-трекинг планет
+    let trackedTarget = 'Sun';
+    const lastTrackedPos = new THREE.Vector3(0, 0, 0);
+    let isTracking = true;
+
+    let isTransitioning = false;
+    let transitionProgress = 0.0;
+    const transitionStartCam = new THREE.Vector3();
+    const transitionEndCam = new THREE.Vector3();
+    const transitionStartLook = new THREE.Vector3();
+    const transitionEndLook = new THREE.Vector3();
+
+    let toastTimeout = null;
+    function showToast(text) {
+      toastEl.innerText = text;
+      toastEl.classList.add('show');
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => toastEl.classList.remove('show'), 3200);
+    }
+
+    const btnMode = document.getElementById('btn-mode-toggle');
+
+    function toggleMode() {
+      isRealMode = !isRealMode;
+      targetModeTransition = isRealMode ? 1.0 : 0.0;
+
+      if (isRealMode) {
+        btnMode.innerText = "🔭";
+        btnMode.setAttribute('data-tip', "Режим: Реалистичный (1:1 А.Е.)");
+        btnMode.classList.add('real-mode');
+        showToast("🔭 Включен реалистичный масштаб: истинные расстояния (1:1 А.Е.) и кеплеровские эллипсы орбит.");
+        if (trackedTarget === 'Sun') {
+          focusOnObject('Sun', 2600);
+        }
+      } else {
+        btnMode.innerText = "🪐";
+        btnMode.setAttribute('data-tip', "Режим: Стандартный (Логар.)");
+        btnMode.classList.remove('real-mode');
+        showToast("🪐 Включен стандартный режим: компактная логарифмическая шкала орбит.");
+        if (trackedTarget === 'Sun') {
+          focusOnObject('Sun', 220);
+        }
+      }
+    }
+    btnMode.onclick = toggleMode;
+
+    function updateOrbitsAndObjects(t) {
+      Object.keys(planetObjects).forEach(key => {
+        const p = planetObjects[key];
+        const a = (1 - t) * p.data.stdOrbit.a + t * p.data.realOrbit.a;
+        const e = (1 - t) * p.data.stdOrbit.e + t * p.data.realOrbit.e;
+        const i = (1 - t) * p.data.stdOrbit.i + t * p.data.realOrbit.i;
+        const w = p.data.realOrbit.w;
+
+        const posAttr = p.orbitLine.geometry.attributes.position;
+        const arr = posAttr.array;
+        for(let s = 0; s <= ORBIT_SEGMENTS; s++) {
+          const E = (s / ORBIT_SEGMENTS) * Math.PI * 2;
+          const pt = getKeplerOrbitPoint(a, e, i, w, E);
+          arr[s*3] = pt.x;
+          arr[s*3 + 1] = pt.y;
+          arr[s*3 + 2] = pt.z;
+        }
+        posAttr.needsUpdate = true;
+      });
+
+      const cometData = CELESTIAL_DATA.Halley;
+      const cA = (1 - t) * cometData.stdOrbit.a + t * cometData.realOrbit.a;
+      const cE = (1 - t) * cometData.stdOrbit.e + t * cometData.realOrbit.e;
+      const cI = (1 - t) * cometData.stdOrbit.i + t * cometData.realOrbit.i;
+      const cW = cometData.realOrbit.w;
+      const cPosAttr = cometOrbitLine.geometry.attributes.position;
+      const cArr = cPosAttr.array;
+      for(let s = 0; s <= ORBIT_SEGMENTS; s++) {
+        const E = (s / ORBIT_SEGMENTS) * Math.PI * 2;
+        const pt = getKeplerOrbitPoint(cA, cE, cI, cW, E);
+        cArr[s*3] = pt.x;
+        cArr[s*3 + 1] = pt.y;
+        cArr[s*3 + 2] = pt.z;
+      }
+      cPosAttr.needsUpdate = true;
+
+      updateHabZoneGeometry(t);
+
+      const sunTargetSize = (1 - t) * CELESTIAL_DATA.Sun.size + t * CELESTIAL_DATA.Sun.realSize;
+      sunMesh.scale.setScalar(sunTargetSize);
+      coronaMesh.scale.setScalar(sunTargetSize);
+      outerHaloMesh.scale.setScalar(sunTargetSize);
+    }
+
+    // =========================================================================
+    // 9. СИСТЕМА ФОКУСИРОВКИ И СКРОЛЛИНГА
+    // =========================================================================
+    function getObjectWorldPos(key) {
+      const v = new THREE.Vector3();
+      if (key === 'Sun') {
+        v.set(0, 0, 0);
+      } else if (key === 'Halley') {
+        cometGroup.getWorldPosition(v);
+      } else if (planetObjects[key]) {
+        planetObjects[key].group.getWorldPosition(v);
+      }
+      return v;
+    }
+
+    function focusOnObject(key, customDist = null) {
+      const data = CELESTIAL_DATA[key];
+      if (!data) return;
+
+      trackedTarget = key;
+      isTracking = true;
+
+      document.querySelectorAll('.p-dot-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.target === key);
+      });
+
+      const curTargetPos = getObjectWorldPos(key);
+      lastTrackedPos.copy(curTargetPos);
+
+      const radius = (key === 'Sun') ? (isRealMode ? data.realSize : data.size) : (data.size || 1.0);
+
+      // Точный оптический расчет: видимый диаметр небесного тела занимает ровно 30% высоты экрана (2R / H = 0.30)
+      const halfFovRad = (camera.fov / 2) * (Math.PI / 180);
+      const targetDist = customDist !== null 
+        ? customDist 
+        : (key === 'Halley' ? 11.5 : (radius / (0.30 * Math.tan(halfFovRad))));
+
+      // Минимальная дистанция приближения колесиком мыши (вплотную к поверхности планет, астероидов и ядра кометы)
+      if (key === 'Halley') {
+        controls.minDistance = 1.15;
+      } else {
+        controls.minDistance = Math.max(radius * 1.02, 0.02);
+      }
+
+      let dir = camera.position.clone().sub(controls.target).normalize();
+      if (dir.lengthSq() < 0.1) dir.set(1, 0.5, 1).normalize();
+
+      const endCamPos = curTargetPos.clone().add(dir.multiplyScalar(targetDist));
+
+      transitionStartCam.copy(camera.position);
+      transitionEndCam.copy(endCamPos);
+      transitionStartLook.copy(controls.target);
+      transitionEndLook.copy(curTargetPos);
+      transitionProgress = 0.0;
+      isTransitioning = true;
+
+      showCard(key);
+    }
+
+    window.addEventListener('wheel', () => {
+      if (isTransitioning) isTransitioning = false;
+    }, { passive: true });
+
+    // =========================================================================
+    // 10. ИНТЕРАКТИВНОЕ НАВЕДЕНИЕ, ВЫПАДАЮЩЕЕ МЕНЮ И ПОДСВЕТКА В ДОКЕ
+    // =========================================================================
+    const hoverPopup = document.getElementById('planet-hover-popup');
+    const phpDot = document.getElementById('php-dot');
+    const phpName = document.getElementById('php-name');
+    const phpInfo = document.getElementById('php-info');
+
+    let currentHoveredKey = null;
+    const hoverTempVec = new THREE.Vector3();
+    const celestialKeys = ['Sun', 'Mercury', 'Venus', 'Earth', 'Mars', 'Vesta', 'Ceres', 'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto', 'Halley'];
+
+    // 100% надежное 2D экранное определение объекта под курсором
+    function findHoveredBody(clientX, clientY) {
+      let bestKey = null;
+      let minDistance = 9999;
+
+      for (let i = 0; i < celestialKeys.length; i++) {
+        const key = celestialKeys[i];
+        if (key === 'Sun') {
+          hoverTempVec.set(0, 0, 0);
+        } else if (key === 'Halley') {
+          cometGroup.getWorldPosition(hoverTempVec);
+        } else if (planetObjects[key]) {
+          planetObjects[key].group.getWorldPosition(hoverTempVec);
+        } else {
+          continue;
+        }
+
+        hoverTempVec.project(camera);
+        if (hoverTempVec.z >= 1.0) continue; // Находится за плоскостью камеры
+
+        const sx = (hoverTempVec.x * 0.5 + 0.5) * window.innerWidth;
+        const sy = (-(hoverTempVec.y * 0.5) + 0.5) * window.innerHeight;
+
+        const dist = Math.hypot(clientX - sx, clientY - sy);
+        // Адаптивный радиус захвата в экранных пикселях
+        const hitRadius = key === 'Sun' ? 56 : (key === 'Jupiter' || key === 'Saturn' ? 44 : 34);
+
+        if (dist <= hitRadius && dist < minDistance) {
+          minDistance = dist;
+          bestKey = key;
+        }
+      }
+      return bestKey;
+    }
+
+    function positionHoverPopup(x, y) {
+      if (!hoverPopup) return;
+      let left = x + 18;
+      let top = y + 18;
+      if (left + 240 > window.innerWidth) left = x - 245;
+      if (top + 90 > window.innerHeight) top = y - 95;
+      hoverPopup.style.left = left + 'px';
+      hoverPopup.style.top = top + 'px';
+    }
+
+    window.addEventListener('mousemove', (e) => {
+      // Если курсор сдвинулся более чем на 6 пикселей от точки нажатия — это сдвиг/панорамирование, а не клик
+      if (Math.hypot(e.clientX - mouseDownPos.x, e.clientY - mouseDownPos.y) > 6) {
+        wasMouseDragged = true;
+        // Если пользователь сдвигает сцену ЛАПОЙ (зажата ЛКМ / e.buttons === 1), отвязываем автотрекинг
+        if (e.buttons === 1) {
+          isTracking = false;
+          isTransitioning = false;
+        }
+      }
+
+      // Игнорируем наведение на сам левый док или правую карточку
+      if (e.target.closest('.interactive')) {
+        clear3DHover();
+        return;
+      }
+
+      const hoveredKey = findHoveredBody(e.clientX, e.clientY);
+
+      if (hoveredKey !== currentHoveredKey) {
+        currentHoveredKey = hoveredKey;
+        update3DHover(hoveredKey, e.clientX, e.clientY);
+      } else if (hoveredKey) {
+        positionHoverPopup(e.clientX, e.clientY);
+      }
+    });
+
+    function clear3DHover() {
+      if (currentHoveredKey) {
+        currentHoveredKey = null;
+        update3DHover(null);
+      }
+    }
+
+    // ВСПЛЫВАЮЩЕЕ МЕНЮ ДЛЯ КНОПОК ЛЕВОГО МЕНЮ (ПРИ НАВЕДЕНИИ МЫШКОЙ)
+    const dockTooltip = document.getElementById('dock-floating-tooltip');
+
+    function showDockTooltip(btn) {
+      if (!dockTooltip || !btn) return;
+      const text = btn.getAttribute('data-tip');
+      if (!text) return;
+
+      const rect = btn.getBoundingClientRect();
+      const top = rect.top + rect.height / 2;
+      const left = rect.right + 12;
+
+      const dot = btn.querySelector('.p-dot');
+      if (dot) {
+        const col = dot.style.background || '#e2e8f0';
+        dockTooltip.innerHTML = `<span class="dft-dot" style="background:${col}; color:${col};"></span><span class="dft-text">${text}</span>`;
+      } else {
+        dockTooltip.innerHTML = `<span class="dft-text">${text}</span>`;
+      }
+
+      dockTooltip.style.top = top + 'px';
+      dockTooltip.style.left = left + 'px';
+      dockTooltip.classList.add('visible');
+    }
+
+    function hideDockTooltip() {
+      if (dockTooltip) {
+        dockTooltip.classList.remove('visible');
+      }
+    }
+
+    // Обработчики наведения курсора мыши на любые кнопки в левом меню
+    document.querySelectorAll('#sidebar-dock button[data-tip]').forEach(btn => {
+      btn.addEventListener('mouseenter', () => showDockTooltip(btn));
+      btn.addEventListener('mouseleave', () => hideDockTooltip());
+    });
+
+    const planetsScrollEl = document.querySelector('.planets-scroll');
+    if (planetsScrollEl) {
+      planetsScrollEl.addEventListener('scroll', () => {
+        const hovered = document.querySelector('#sidebar-dock button:hover');
+        if (hovered) {
+          showDockTooltip(hovered);
+        } else {
+          hideDockTooltip();
+        }
+      }, { passive: true });
+    }
+
+    function update3DHover(key, clientX = 0, clientY = 0) {
+      document.querySelectorAll('.p-dot-btn').forEach(btn => {
+        btn.classList.remove('hovered-3d');
+      });
+
+      document.querySelectorAll('.planet-label').forEach(lbl => {
+        lbl.classList.remove('hovered-3d');
+      });
+
+      if (key && CELESTIAL_DATA[key]) {
+        const data = CELESTIAL_DATA[key];
+
+        // 1. Показываем всплывающее меню рядом с курсором
+        if (hoverPopup) {
+          phpName.innerText = data.name;
+          phpInfo.innerText = `${data.type} • D: ${data.diam}`;
+          const colHex = '#' + (data.color || 0xD6632B).toString(16).padStart(6, '0');
+          phpDot.style.background = colHex;
+          phpDot.style.color = colHex;
+          positionHoverPopup(clientX, clientY);
+          hoverPopup.classList.add('visible');
+        }
+
+        // 2. Зажигаем название и кнопку в левом меню
+        const targetBtn = document.querySelector(`.p-dot-btn[data-target="${key}"]`);
+        if (targetBtn) {
+          targetBtn.classList.add('hovered-3d');
+          targetBtn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          showDockTooltip(targetBtn);
+        }
+
+        // 3. Подсвечиваем 3D-метку над планетой
+        if (planetLabels[key]) {
+          planetLabels[key].classList.add('hovered-3d');
+        }
+
+        document.body.style.cursor = 'pointer';
+      } else {
+        if (hoverPopup) hoverPopup.classList.remove('visible');
+        hideDockTooltip();
+        document.body.style.cursor = '';
+      }
+    }
+
+    // Клик по небесному телу для центрирования и фокуса (только если это не было перетаскивание лапой!)
+    window.addEventListener('click', (e) => {
+      if (e.target.closest('.interactive')) return;
+
+      // Если мышь перемещалась (был сдвиг/перетаскивание сцены лапой) — игнорируем!
+      if (wasMouseDragged) {
+        wasMouseDragged = false;
+        return;
+      }
+
+      const clickedKey = findHoveredBody(e.clientX, e.clientY);
+      if (clickedKey) {
+        focusOnObject(clickedKey);
+      }
+    });
+
+    function showCard(key) {
+      const data = CELESTIAL_DATA[key];
+      if (!data) return;
+
+      document.getElementById('card-name').innerText = data.name;
+      document.getElementById('card-type').innerText = data.type;
+      document.getElementById('card-diam').innerText = data.diam;
+      document.getElementById('card-ratio').innerText = data.ratio || "—";
+      document.getElementById('card-dist').innerText = data.dist;
+      document.getElementById('card-period').innerText = data.period;
+      document.getElementById('card-rot').innerText = data.rot;
+      document.getElementById('card-ecc').innerText = data.ecc || (data.realOrbit ? data.realOrbit.e.toString() : "0.000");
+      document.getElementById('card-desc').innerText = data.desc;
+
+      const card = document.getElementById('info-card');
+      card.style.display = 'block';
+      setTimeout(() => card.classList.add('visible'), 10);
+    }
+
+    document.getElementById('card-close').onclick = () => {
+      const card = document.getElementById('info-card');
+      card.classList.remove('visible');
+      setTimeout(() => card.style.display = 'none', 300);
+    };
+
+    // Центрировать Солнце
+    document.getElementById('btn-reset').onclick = () => {
+      focusOnObject('Sun', isRealMode ? 2800 : 200);
+    };
+
+
+    document.getElementById('btn-toggle-orbits').onclick = (e) => {
+      orbitLines.visible = !orbitLines.visible;
+      e.target.classList.toggle('active', orbitLines.visible);
+      e.target.setAttribute('data-tip', `Орбиты: ${orbitLines.visible ? 'Вкл' : 'Выкл'}`);
+    };
+
+    document.getElementById('btn-toggle-asteroids').onclick = (e) => {
+      asteroidBeltGroup.visible = !asteroidBeltGroup.visible;
+      e.target.classList.toggle('active', asteroidBeltGroup.visible);
+      e.target.setAttribute('data-tip', `Пояс астероидов: ${asteroidBeltGroup.visible ? 'Вкл' : 'Выкл'}`);
+    };
+
+    document.getElementById('btn-toggle-habzone').onclick = (e) => {
+      habZone.visible = !habZone.visible;
+      e.target.classList.toggle('active', habZone.visible);
+      e.target.setAttribute('data-tip', `Зона жизни: ${habZone.visible ? 'Вкл' : 'Выкл'}`);
+    };
+
+    document.getElementById('btn-labels').onclick = (e) => {
+      showLabels = !showLabels;
+      e.target.classList.toggle('active', showLabels);
+      e.target.setAttribute('data-tip', `Метки планет: ${showLabels ? 'Вкл' : 'Выкл'}`);
+      labelsContainer.style.display = showLabels ? 'block' : 'none';
+    };
+
+    document.getElementById('btn-play-pause').onclick = (e) => {
+      isPlaying = !isPlaying;
+      e.target.innerText = isPlaying ? "⏸ Пауза" : "▶️ Пуск";
+    };
+
+    document.getElementById('btn-reverse').onclick = (e) => {
+      timeDirection *= -1;
+      e.target.style.background = timeDirection < 0 ? 'rgba(255, 255, 255, 0.22)' : '';
+    };
+
+    const speedSlider = document.getElementById('time-speed');
+    speedSlider.oninput = (e) => {
+      timeScale = (e.target.value / 25);
+      document.getElementById('speed-label').innerText = `x${Math.round(e.target.value)}`;
+    };
+
+    document.getElementById('btn-photon').onclick = () => {
+      photonActive = true;
+      photonDist = 0;
+      photonMesh.visible = true;
+      photonMesh.position.set(0,0,0);
+      showToast("⚡ Фотон света запущен со скоростью 'c' от центра Солнца!");
+    };
+
+    document.querySelectorAll('.p-dot-btn').forEach(btn => {
+      btn.onclick = () => focusOnObject(btn.dataset.target);
+    });
+
+    // =========================================================================
+    // 10. ЭКРАННЫЕ МЕТКИ
+    // =========================================================================
+    const tempVec = new THREE.Vector3();
+    function updateLabels() {
+      if (!showLabels) return;
+
+      Object.keys(planetObjects).forEach(key => {
+        const p = planetObjects[key];
+        const label = planetLabels[key];
+        if (!label) return;
+
+        p.group.getWorldPosition(tempVec);
+        tempVec.y += p.data.size + 1.2;
+        tempVec.project(camera);
+
+        if (tempVec.z < 1) {
+          const x = (tempVec.x * 0.5 + 0.5) * window.innerWidth;
+          const y = (-(tempVec.y * 0.5) + 0.5) * window.innerHeight;
+          label.style.transform = `translate(-50%, -100%) translate(${x}px, ${y}px)`;
+          label.style.display = 'block';
+        } else {
+          label.style.display = 'none';
+        }
+      });
+
+      if (planetLabels['Halley']) {
+        cometGroup.getWorldPosition(tempVec);
+        tempVec.y += 1.6;
+        tempVec.project(camera);
+        if (tempVec.z < 1) {
+          const x = (tempVec.x * 0.5 + 0.5) * window.innerWidth;
+          const y = (-(tempVec.y * 0.5) + 0.5) * window.innerHeight;
+          planetLabels['Halley'].style.transform = `translate(-50%, -100%) translate(${x}px, ${y}px)`;
+          planetLabels['Halley'].style.display = 'block';
+        } else {
+          planetLabels['Halley'].style.display = 'none';
+        }
+      }
+    }
+
+    // =========================================================================
+    // 11. ОСНОВНОЙ ЦИКЛ РЕНДЕРИНГА
+    // =========================================================================
+    let moonAngle = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Вращение фонового звездного неба
+      starField.rotation.y += 0.00008;
+
+      coronaMesh.rotation.y += 0.002;
+      outerHaloMesh.rotation.z += 0.001;
+
+      // Плавная интерполяция орбит
+      if (Math.abs(modeTransition - targetModeTransition) > 0.0005) {
+        modeTransition += (targetModeTransition - modeTransition) * 0.055;
+        if (Math.abs(modeTransition - targetModeTransition) <= 0.0005) {
+          modeTransition = targetModeTransition;
+        }
+        updateOrbitsAndObjects(modeTransition);
+      }
+
+      if (isPlaying) {
+        const delta = timeScale * timeDirection * 0.5;
+
+        // Движение планет и вращение облаков
+        Object.keys(planetObjects).forEach(k => {
+          const p = planetObjects[k];
+          const curA = (1 - modeTransition) * p.data.stdOrbit.a + modeTransition * p.data.realOrbit.a;
+          const curE = (1 - modeTransition) * p.data.stdOrbit.e + modeTransition * p.data.realOrbit.e;
+          const curI = (1 - modeTransition) * p.data.stdOrbit.i + modeTransition * p.data.realOrbit.i;
+          const curW = p.data.realOrbit.w;
+
+          const speed = (1 - modeTransition) * p.data.speedStd + modeTransition * p.data.speedReal;
+          p.meanAnomaly += speed * delta;
+
+          const E = solveKepler(p.meanAnomaly, curE);
+          const pos = getKeplerOrbitPoint(curA, curE, curI, curW, E);
+          p.group.position.copy(pos);
+
+          // Осевое вращение планеты (если включено переключателем СПРАВА)
+          if (isPlanetSpinning) {
+            p.mesh.rotation.y += 0.012;
+            if (p.clouds) {
+              p.clouds.rotation.y += 0.016;
+            }
+          }
+
+          if (p.group.userData.moon) {
+            moonAngle += 0.03 * delta;
+            p.group.userData.moon.position.set(Math.cos(moonAngle) * 3.8, 0, Math.sin(moonAngle) * 3.8);
+            p.group.userData.moon.rotation.y += 0.02;
+          }
+        });
+
+        // Движение и кувыркание астероидов пояса в 3D
+        for (let i = 0; i < asteroidData.length; i++) {
+          const a = asteroidData[i];
+          const curR = (1 - modeTransition) * a.stdR + modeTransition * a.realR;
+          const curY = (1 - modeTransition) * a.yStd + modeTransition * a.yReal;
+          a.angle += a.speed * delta;
+
+          dummy.position.set(Math.cos(a.angle) * curR, curY, Math.sin(a.angle) * curR);
+          dummy.scale.setScalar(a.scale);
+
+          if (isPlanetSpinning) {
+            a.rotX += a.rotSpeedX;
+            a.rotY += a.rotSpeedY;
+            a.rotZ += a.rotSpeedZ;
+          }
+          dummy.rotation.set(a.rotX, a.rotY, a.rotZ);
+          dummy.updateMatrix();
+          a.mesh.setMatrixAt(a.index, dummy.matrix);
+        }
+        meshC.instanceMatrix.needsUpdate = true;
+        meshS.instanceMatrix.needsUpdate = true;
+        meshM.instanceMatrix.needsUpdate = true;
+
+        // Комета Галлея
+        const cometData = CELESTIAL_DATA.Halley;
+        const cA = (1 - modeTransition) * cometData.stdOrbit.a + modeTransition * cometData.realOrbit.a;
+        const cE = (1 - modeTransition) * cometData.stdOrbit.e + modeTransition * cometData.realOrbit.e;
+        const cI = (1 - modeTransition) * cometData.stdOrbit.i + modeTransition * cometData.realOrbit.i;
+        const cW = cometData.realOrbit.w;
+        const cSpeed = (1 - modeTransition) * cometData.speedStd + modeTransition * cometData.speedReal;
+        cometMeanAnomaly += cSpeed * delta;
+
+        const cE_anom = solveKepler(cometMeanAnomaly, cE);
+        const cPos = getKeplerOrbitPoint(cA, cE, cI, cW, cE_anom);
+        cometGroup.position.copy(cPos);
+
+        const fromSun = cometGroup.position.clone().normalize();
+        cometGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), fromSun);
+
+        // Осевое кувыркание ядра кометы Галлея (Giotto 52-часовой период)
+        if (isPlanetSpinning) {
+          cometNucleus.rotation.y += 0.007;
+          cometNucleus.rotation.x += 0.0025;
+          cometNucleus.rotation.z += 0.0015;
+        }
+
+        // Обновление физических шейдеров хвоста кометы и плазменных стримеров
+        ionTailMat.uniforms.uTime.value += 0.022 * delta;
+        dustTailMat.uniforms.uTime.value += 0.016 * delta;
+
+        // Движение шлейфа микрочастиц пыли
+        const mPos = dustMotesGeo.attributes.position.array;
+        for (let i = 0; i < dustMotesCount; i++) {
+          const m = motesData[i];
+          m.t += m.speed * delta;
+          if (m.t > 1.0) {
+            m.t = 0.0;
+            m.offsetS = (Math.random() - 0.5) * 1.6;
+            m.offsetY = (Math.random() - 0.5) * 1.2;
+          }
+          const t = m.t;
+          const z = t * 46.0;
+          const x = Math.pow(t, 1.68) * 9.2 + m.offsetS * (0.35 + Math.pow(t, 1.25) * 4.6);
+          const y = m.offsetY * (0.3 + t * 1.8);
+          mPos[i * 3] = x;
+          mPos[i * 3 + 1] = y;
+          mPos[i * 3 + 2] = z;
+        }
+        dustMotesGeo.attributes.position.needsUpdate = true;
+
+        if (photonActive) {
+          const maxPhotonDist = (1 - modeTransition) * 280 + modeTransition * 4500;
+          photonDist += ((1 - modeTransition) * 1.5 + modeTransition * 20.0) * timeScale;
+          photonMesh.position.set(photonDist, 0, 0);
+          if (photonDist > maxPhotonDist) {
+            photonActive = false;
+            photonMesh.visible = false;
+          }
+        }
+      }
+
+      // Камера и трекинг
+      if (isTransitioning) {
+        // Динамический трекинг во время перелета к движущейся планете (гарантирует посадку ровно в центр)
+        const curTarget = getObjectWorldPos(trackedTarget);
+        const flyDelta = curTarget.clone().sub(lastTrackedPos);
+        transitionEndLook.add(flyDelta);
+        transitionEndCam.add(flyDelta);
+        lastTrackedPos.copy(curTarget);
+
+        transitionProgress += 0.045;
+        if (transitionProgress >= 1.0) {
+          transitionProgress = 1.0;
+          isTransitioning = false;
+        }
+        const t = 1 - Math.pow(1 - transitionProgress, 3);
+        camera.position.lerpVectors(transitionStartCam, transitionEndCam, t);
+        controls.target.lerpVectors(transitionStartLook, transitionEndLook, t);
+      } else if (isTracking && trackedTarget) {
+        // Синхронный дельта-трекинг (удерживает планету в фокусе при орбитальном полете)
+        const currentTargetPos = getObjectWorldPos(trackedTarget);
+        const delta = currentTargetPos.clone().sub(lastTrackedPos);
+
+        controls.target.add(delta);
+        camera.position.add(delta);
+
+        lastTrackedPos.copy(currentTargetPos);
+      }
+
+      controls.update();
+      updateLabels();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
